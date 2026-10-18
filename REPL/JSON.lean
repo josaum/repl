@@ -168,7 +168,24 @@ instance : ToJson ProofStepResponse where
 /-- Json wrapper for an error. -/
 structure Error where
   message : String
-deriving ToJson, FromJson
+  /-- Messages logged before the error, if any
+  (e.g. the elaboration errors logged before a tactic aborts). -/
+  messages : List Message := []
+
+instance : ToJson Error where
+  toJson r := Json.mkObj <| .flatten [
+    [("message", r.message)],
+    Json.nonemptyList "messages" r.messages,
+  ]
+
+/-- The `messages` field is optional, for backwards compatibility. -/
+instance : FromJson Error where
+  fromJson? j := do
+    let message ← j.getObjValAs? String "message"
+    let messages ← match j.getObjVal? "messages" with
+    | .error _ => pure []
+    | .ok ms => fromJson? ms
+    return { message, messages }
 
 structure PickleEnvironment where
   env : Nat

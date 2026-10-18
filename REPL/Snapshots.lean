@@ -153,6 +153,33 @@ def runTacticM (p : ProofSnapshot) (t : TacticM α) : IO (α × ProofSnapshot) :
   return (a, { p' with tacticState })
 
 /--
+Like `runTermElabM`, but any exception is caught *inside* the monad stack and returned,
+so the resulting `ProofSnapshot` still contains the messages logged before the exception
+(e.g. the elaboration errors preceding a tactic abort).
+-/
+def runTermElabMExcept (p : ProofSnapshot) (t : TermElabM α) :
+    IO (Except Exception α × ProofSnapshot) := do
+  let ((r, termState), p') ← p.runMetaM (Lean.Elab.Term.TermElabM.run (s := p.termState) (do
+    try
+      let r ← t
+      Term.synthesizeSyntheticMVarsNoPostponing
+      return .ok r
+    catch ex =>
+      return .error ex))
+  return (r, { p' with termState })
+
+/--
+Like `runTacticM`, but any exception is caught *inside* the monad stack and returned,
+so the resulting `ProofSnapshot` still contains the messages logged before the exception.
+-/
+def runTacticMExcept (p : ProofSnapshot) (t : TacticM α) :
+    IO (Except Exception α × ProofSnapshot) := do
+  let (r, p') ← p.runTermElabMExcept (t p.tacticContext |>.run p.tacticState)
+  match r with
+  | .ok (a, tacticState) => return (.ok a, { p' with tacticState })
+  | .error ex => return (.error ex, p')
+
+/--
 Run a `TacticM` monadic function in the current `ProofSnapshot`, updating the `Tactic.State`,
 and discarding the return value.
 -/
@@ -183,6 +210,16 @@ def runString (p : ProofSnapshot) (t : String) : IO ProofSnapshot :=
   match Parser.runParserCategory p.coreState.env `tactic t with
   | .error e => throw (IO.userError e)
   | .ok stx => p.runSyntax stx
+
+/--
+Like `runString`, but a tactic exception is caught and returned alongside the `ProofSnapshot`,
+which still contains the messages logged before the exception.
+(Parse errors are still thrown as `IO.userError`.)
+-/
+def runStringExcept (p : ProofSnapshot) (t : String) : IO (Except Exception Unit × ProofSnapshot) :=
+  match Parser.runParserCategory p.coreState.env `tactic t with
+  | .error e => throw (IO.userError e)
+  | .ok stx => p.runTacticMExcept (evalTactic stx)
 
 /-- Pretty print the current goals in the `ProofSnapshot`. -/
 def ppGoals (p : ProofSnapshot) : IO (List Format) :=

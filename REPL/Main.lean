@@ -258,7 +258,7 @@ def createProofStepReponse (proofState : ProofSnapshot) (old? : Option ProofSnap
 /-- Pickle a `CommandSnapshot`, generating a JSON response. -/
 def pickleCommandSnapshot (n : PickleEnvironment) : M m (CommandResponse ⊕ Error) := do
   match (← get).cmdStates[n.env]? with
-  | none => return .inr ⟨"Unknown environment."⟩
+  | none => return .inr { message := "Unknown environment." }
   | some env =>
     discard <| env.pickle n.pickleTo
     return .inl { env := n.env }
@@ -273,7 +273,7 @@ def unpickleCommandSnapshot (n : UnpickleEnvironment) : M IO CommandResponse := 
 -- This generates a new identifier, which perhaps is not what we want?
 def pickleProofSnapshot (n : PickleProofState) : M m (ProofStepResponse ⊕ Error) := do
   match (← get).proofStates[n.proofState]? with
-  | none => return .inr ⟨"Unknown proof State."⟩
+  | none => return .inr { message := "Unknown proof State." }
   | some proofState =>
     discard <| proofState.pickle n.pickleTo
     return .inl (← createProofStepReponse proofState)
@@ -286,7 +286,7 @@ def unpickleProofSnapshot (n : UnpickleProofState) : M IO (ProofStepResponse ⊕
     | some env => pure (some env, false)
     | none => pure (none, true)
   if notFound then
-    return .inr ⟨"Unknown environment."⟩
+    return .inr { message := "Unknown environment." }
   let (proofState, _) ← ProofSnapshot.unpickle n.unpickleProofStateFrom cmdSnapshot?
   Sum.inl <$> createProofStepReponse proofState
 
@@ -300,12 +300,12 @@ def runCommand (s : Command) : M IO (CommandResponse ⊕ Error) := do
     | some env => pure (some env, false)
     | none => pure (none, true)
   if notFound then
-    return .inr ⟨"Unknown environment."⟩
+    return .inr { message := "Unknown environment." }
   let initialCmdState? := cmdSnapshot?.map fun c => c.cmdState
   let (initialCmdState, cmdState, messages, trees) ← try
     IO.processInput s.cmd initialCmdState?
   catch ex =>
-    return .inr ⟨ex.toString⟩
+    return .inr { message := ex.toString }
   let messages ← messages.mapM fun m => Message.of m
   -- For debugging purposes, sometimes we print out the trees here:
   -- trees.forM fun t => do IO.println (← t.format)
@@ -346,7 +346,7 @@ def processFile (s : File) : M IO (CommandResponse ⊕ Error) := do
     let cmd ← IO.FS.readFile s.path
     runCommand { s with env := s.env, cmd }
   catch e =>
-    pure <| .inr ⟨e.toString⟩
+    pure <| .inr { message := e.toString }
 
 /--
 Run a single tactic, returning the id of the new proof statement, and the new goals.
@@ -354,13 +354,27 @@ Run a single tactic, returning the id of the new proof statement, and the new go
 -- TODO detect sorries?
 def runProofStep (s : ProofStep) : M IO (ProofStepResponse ⊕ Error) := do
   match (← get).proofStates[s.proofState]? with
-  | none => return .inr ⟨"Unknown proof state."⟩
+  | none => return .inr { message := "Unknown proof state." }
   | some proofState =>
     try
-      let proofState' ← proofState.runString s.tactic
-      return .inl (← createProofStepReponse proofState' proofState)
+      match (← proofState.runStringExcept s.tactic) with
+      | (.ok _, proofState') =>
+        return .inl (← createProofStepReponse proofState' proofState)
+      | (.error ex, proofState') =>
+        -- A tactic that fails during elaboration logs its diagnostics to the message log
+        -- and then aborts with an internal exception, whose rendering is uninformative.
+        -- Surface the accumulated messages alongside the error string.
+        let messages ← (proofState'.newMessages proofState).mapM fun m => Message.of m
+        -- Render the exception exactly as `CoreM.toIO` would at the `IO` boundary.
+        let err ← match ex with
+        | .error _ msg => pure (← msg.toString)
+        | .internal id _ => try
+            pure <| "internal exception " ++ (← id.getName).toString
+          catch _ =>
+            pure <| "internal exception #" ++ toString id.idx ++ " (unknown)"
+        return .inr ⟨"Lean error:\n" ++ err, messages⟩
     catch ex =>
-      return .inr ⟨"Lean error:\n" ++ ex.toString⟩
+      return .inr { message := "Lean error:\n" ++ ex.toString }
 
 end REPL
 
@@ -394,7 +408,7 @@ def parse (query : String) : IO Input := do
   let json := Json.parse query
   match json with
   | .error e => throw <| IO.userError <| toString <| toJson <|
-      (⟨"Could not parse JSON:\n" ++ e⟩ : Error)
+      ({ message := "Could not parse JSON:\n" ++ e } : Error)
   | .ok j => match fromJson? j with
     | .ok (r : REPL.ProofStep) => return .proofStep r
     | .error _ => match fromJson? j with
@@ -410,7 +424,7 @@ def parse (query : String) : IO Input := do
     | .error _ => match fromJson? j with
     | .ok (r : REPL.File) => return .file r
     | .error e => throw <| IO.userError <| toString <| toJson <|
-        (⟨"Could not parse as a valid JSON command:\n" ++ e⟩ : Error)
+        ({ message := "Could not parse as a valid JSON command:\n" ++ e } : Error)
 
 /-- Avoid buffering the output. -/
 def printFlush [ToString α] (s : α) : IO Unit := do

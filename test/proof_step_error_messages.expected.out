@@ -1,0 +1,22 @@
+{"sorries":
+ [{"proofState": 0,
+   "pos": {"line": 1, "column": 42},
+   "goal": "n : Nat\n⊢ n + 0 = n",
+   "endPos": {"line": 1, "column": 47}}],
+ "messages":
+ [{"severity": "warning",
+   "pos": {"line": 1, "column": 8},
+   "endPos": {"line": 1, "column": 13},
+   "data": "declaration uses `sorry`"}],
+ "env": 0}
+
+{"messages":
+ [{"severity": "error",
+   "pos": {"line": 0, "column": 0},
+   "endPos": {"line": 0, "column": 0},
+   "data": "Unknown constant `Nat.totally_made_up_lemma`"}],
+ "message": "Lean error:\ninternal exception abortTactic"}
+
+{"message": "Lean error:\n<input>:1:4: unexpected end of input; expected ']'"}
+
+{"proofStatus": "Completed", "proofState": 1, "goals": []}

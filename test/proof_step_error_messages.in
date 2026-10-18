@@ -1,0 +1,7 @@
+{"cmd": "theorem probe (n : Nat) : n + 0 = n := by sorry"}
+
+{"tactic": "rw [Nat.totally_made_up_lemma]", "proofState": 0}
+
+{"tactic": "rw [", "proofState": 0}
+
+{"tactic": "rw [Nat.add_zero]", "proofState": 0}
