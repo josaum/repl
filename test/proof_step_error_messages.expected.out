@@ -20,3 +20,4 @@
 {"message": "Lean error:\n<input>:1:4: unexpected end of input; expected ']'"}
 
 {"proofStatus": "Completed", "proofState": 1, "goals": []}
+
